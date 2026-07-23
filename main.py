@@ -34,7 +34,7 @@ APPSHEET_ACCESS_KEY = os.environ.get("APPSHEET_ACCESS_KEY")
 APPSHEET_TABLE = os.environ.get("APPSHEET_TABLE", "Historial RDI")
 
 BASE_DIR = Path(__file__).resolve().parent
-LOCAL_LOGO = BASE_DIR / "assets" / "logo.jpg"
+LOCAL_LOGO = BASE_DIR / "logo.jpg"
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "Mozilla/5.0"})
