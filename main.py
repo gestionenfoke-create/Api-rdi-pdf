@@ -292,27 +292,56 @@ def agregar_archivos_adjuntos(
     columnas: list[str],
     styles: dict[str, ParagraphStyle],
 ) -> None:
-    archivos = []
+    """
+    Agrega al PDF enlaces clicables hacia los archivos almacenados en AppSheet.
+
+    Columnas de la pregunta:
+    - ARCHIVO 1 P
+    - ARCHIVO 2 P
+
+    Columnas de la respuesta:
+    - ARCHIVO 1 R
+    - ARCHIVO 2 R
+    - Video R.
+    """
+    archivos: list[tuple[str, str, str]] = []
 
     for columna in columnas:
         ruta = str(registro.get(columna, "") or "").strip()
-        if ruta:
-            archivos.append((columna, ruta))
+        if not ruta:
+            continue
+
+        url = appsheet_file_url(ruta)
+        if not url:
+            continue
+
+        nombre = Path(urlparse(ruta).path).name or ruta
+        archivos.append((columna, nombre, url))
 
     if not archivos:
         return
 
     story.append(Spacer(1, 0.3 * cm))
     story.append(Paragraph("Archivos adjuntos", styles["section_center"]))
+    story.append(Spacer(1, 0.1 * cm))
 
-    for etiqueta, ruta in archivos:
-        nombre = Path(urlparse(ruta).path).name or ruta
+    for etiqueta, nombre, url in archivos:
+        # ReportLab interpreta "&" como parte de su marcado XML.
+        # Por eso la URL debe pasar por texto_seguro().
+        url_pdf = texto_seguro(url)
+
         story.append(
             Paragraph(
-                f"<b>{texto_seguro(etiqueta)}:</b> {texto_seguro(nombre)}",
-                styles["small"],
+                (
+                    f"<b>{texto_seguro(etiqueta)}:</b> "
+                    f'<link href="{url_pdf}" color="#1155CC">'
+                    f'<u>Abrir {texto_seguro(nombre)}</u>'
+                    f"</link>"
+                ),
+                styles["normal"],
             )
         )
+        story.append(Spacer(1, 0.12 * cm))
 
 
 def construir_estilos() -> dict[str, ParagraphStyle]:
