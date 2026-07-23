@@ -386,6 +386,7 @@ def agregar_encabezado_rdi(
     styles: dict[str, ParagraphStyle],
     fecha_etiqueta: str,
     fecha_columna: str,
+    subtitulo: str = "",
 ) -> None:
     numero = registro.get("N RDI", "")
     proyecto = registro.get("PROYECTO", "")
@@ -395,6 +396,12 @@ def agregar_encabezado_rdi(
 
     agregar_logo(story)
 
+    if subtitulo:
+        story.append(
+            Paragraph(subtitulo, styles["project_label"])
+        )
+        story.append(Spacer(1, 0.25 * cm))
+    
     story.append(
         Paragraph(
             f"Requerimiento de Información N°{texto_seguro(numero)}",
@@ -496,6 +503,7 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
         styles,
         "Fecha Respuesta RDI",
         "FECHA RESPUESTA",
+        "Respuesta",
     )
 
     story.append(Paragraph("Respuesta de la RDI", styles["section_center"]))
