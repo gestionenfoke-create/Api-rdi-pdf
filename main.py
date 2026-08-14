@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import html
+import json
 import os
 import re
 import traceback
@@ -10,7 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, Response, jsonify, request, send_file
 from PIL import Image as PILImage, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -593,8 +596,8 @@ def agregar_encabezado_rdi(
     etapa = "RESPUESTA" if subtitulo else "EMISIÓN"
 
     titulo = Paragraph(
-        f"<font size='8' color='#7A655B'><b>REQUERIMIENTO DE INFORMACIÓN</b></font><br/>"
-        f"<br/><font size='0.5'> </font><br/>"
+        f"<font size='8' color='#7A655B'><b>REQUERIMIENTO DE INFORMACIÓN</b></font>"
+        f"<br/><font size='3'> </font><br/>"
         f"<font size='20' color='#8E3209'><b>RDI N° {texto_seguro(numero)}</b></font><br/>"
         f"<font size='8.5' color='#CB4D12'><b>{etapa}</b></font>",
         styles["normal"],
@@ -880,6 +883,299 @@ def test_appsheet():
     except Exception as exc:
         traceback.print_exc()
         return {"error": str(exc)}, 500
+
+
+def logo_data_uri() -> str:
+    """Devuelve logo.jpg embebido para la pantalla de compartir."""
+    if not LOCAL_LOGO.exists():
+        return ""
+
+    try:
+        contenido = LOCAL_LOGO.read_bytes()
+        encoded = base64.b64encode(contenido).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        traceback.print_exc()
+        return ""
+
+
+@app.route("/compartir")
+def compartir():
+    """
+    Pantalla intermedia para compartir la RDI como archivo PDF usando
+    el menú nativo del dispositivo (WhatsApp, correo, Teams, etc.).
+
+    Uso:
+        /compartir?id=<ID_RDI>
+    """
+    id_rdi = request.args.get("id", "").strip()
+    if not id_rdi:
+        return {"error": "Falta parámetro id"}, 400
+
+    id_html = html.escape(id_rdi)
+    id_js = json.dumps(id_rdi)
+    logo_uri = logo_data_uri()
+    logo_html = (
+        f'<img class="logo" src="{logo_uri}" alt="ENFOKE">'
+        if logo_uri
+        else '<div class="marca-texto">ENFOKE</div>'
+    )
+
+    pagina = f"""<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#CB4D12">
+  <title>Compartir RDI</title>
+  <style>
+    :root {{
+      --primario: #CB4D12;
+      --oscuro: #8E3209;
+      --suave: #FCEADF;
+      --fondo: #FFF8F4;
+      --texto: #332A26;
+      --muted: #7A655B;
+      --borde: #E9C6B2;
+      --blanco: #FFFFFF;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, var(--fondo) 0%, #ffffff 58%);
+      color: var(--texto);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }}
+    .card {{
+      width: min(540px, 100%);
+      background: var(--blanco);
+      border: 1px solid var(--borde);
+      border-radius: 18px;
+      box-shadow: 0 18px 46px rgba(76, 38, 20, .14);
+      overflow: hidden;
+    }}
+    .topbar {{ height: 8px; background: var(--primario); }}
+    .content {{ padding: 30px; }}
+    .brand {{ text-align: center; margin-bottom: 24px; }}
+    .logo {{
+      display: block;
+      width: min(340px, 86%);
+      height: auto;
+      margin: 0 auto;
+      border-radius: 8px;
+    }}
+    .marca-texto {{
+      color: var(--primario);
+      font-weight: 700;
+      letter-spacing: .35em;
+      font-size: 26px;
+    }}
+    .eyebrow {{
+      margin: 0 0 8px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--primario);
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    h1 {{
+      margin: 0;
+      color: var(--oscuro);
+      font-size: clamp(26px, 7vw, 36px);
+      line-height: 1.05;
+    }}
+    .id {{
+      display: inline-block;
+      margin-top: 12px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: var(--suave);
+      color: var(--oscuro);
+      font-size: 13px;
+      font-weight: 700;
+      word-break: break-all;
+    }}
+    .estado {{
+      margin: 24px 0 18px;
+      padding: 14px 16px;
+      border: 1px solid var(--borde);
+      background: var(--fondo);
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.45;
+    }}
+    .estado strong {{ color: var(--oscuro); }}
+    .acciones {{ display: grid; gap: 11px; }}
+    button, .btn {{
+      appearance: none;
+      width: 100%;
+      border-radius: 11px;
+      padding: 14px 18px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      transition: transform .12s ease, opacity .12s ease;
+    }}
+    button:active, .btn:active {{ transform: scale(.99); }}
+    #shareBtn {{
+      border: 0;
+      color: var(--blanco);
+      background: var(--primario);
+    }}
+    #shareBtn:disabled {{ opacity: .5; cursor: wait; }}
+    #downloadBtn {{
+      display: none;
+      border: 1px solid var(--primario);
+      color: var(--primario);
+      background: var(--blanco);
+    }}
+    .nota {{
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: center;
+    }}
+    .error {{ color: #9f1f16; background: #fff0ee; border-color: #f0bbb6; }}
+    .ok {{ color: #245c35; background: #eef8f0; border-color: #bfdec7; }}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="topbar"></div>
+    <div class="content">
+      <div class="brand">{logo_html}</div>
+      <p class="eyebrow">Requerimiento de Información</p>
+      <h1>Compartir RDI</h1>
+      <div class="id">ID: {id_html}</div>
+
+      <div id="estado" class="estado">
+        <strong>Preparando PDF...</strong><br>
+        El documento se está generando para poder compartirlo como archivo.
+      </div>
+
+      <div class="acciones">
+        <button id="shareBtn" type="button" disabled>Compartir PDF</button>
+        <a id="downloadBtn" class="btn" href="#" download>Descargar PDF</a>
+      </div>
+
+      <p class="nota">
+        Al compartir, tu dispositivo mostrará las aplicaciones disponibles.
+        Puedes elegir WhatsApp y luego seleccionar el contacto o grupo.
+      </p>
+    </div>
+  </main>
+
+  <script>
+    const idRdi = {id_js};
+    const estado = document.getElementById('estado');
+    const shareBtn = document.getElementById('shareBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let pdfFile = null;
+    let objectUrl = null;
+
+    function extraerNombreArchivo(response) {{
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const utf8 = disposition.match(/filename\\*=UTF-8''([^;]+)/i);
+      if (utf8 && utf8[1]) {{
+        try {{ return decodeURIComponent(utf8[1]); }} catch (_) {{}}
+      }}
+      const normal = disposition.match(/filename="?([^";]+)"?/i);
+      if (normal && normal[1]) return normal[1];
+      return `RDI_${{idRdi}}.pdf`;
+    }}
+
+    async function prepararPdf() {{
+      try {{
+        const url = `/generar?id=${{encodeURIComponent(idRdi)}}`;
+        const response = await fetch(url, {{ cache: 'no-store' }});
+        if (!response.ok) {{
+          let detalle = `Error ${{response.status}}`;
+          try {{
+            const data = await response.json();
+            detalle = data.error || detalle;
+          }} catch (_) {{}}
+          throw new Error(detalle);
+        }}
+
+        const blob = await response.blob();
+        const filename = extraerNombreArchivo(response);
+        pdfFile = new File([blob], filename, {{ type: 'application/pdf' }});
+        objectUrl = URL.createObjectURL(blob);
+
+        downloadBtn.href = objectUrl;
+        downloadBtn.download = filename;
+        downloadBtn.style.display = 'block';
+
+        const puedeCompartirArchivo = Boolean(
+          navigator.share &&
+          navigator.canShare &&
+          navigator.canShare({{ files: [pdfFile] }})
+        );
+
+        shareBtn.disabled = false;
+        if (puedeCompartirArchivo) {{
+          estado.classList.add('ok');
+          estado.innerHTML = `<strong>PDF listo.</strong><br>${{filename}} está preparado para compartir.`;
+        }} else {{
+          estado.innerHTML = '<strong>PDF listo.</strong><br>Este navegador no permite compartir archivos directamente. Puedes descargarlo con el botón inferior.';
+          shareBtn.textContent = 'Descargar PDF';
+        }}
+      }} catch (error) {{
+        console.error(error);
+        estado.classList.add('error');
+        estado.innerHTML = `<strong>No fue posible preparar el PDF.</strong><br>${{error.message}}`;
+        shareBtn.disabled = true;
+      }}
+    }}
+
+    shareBtn.addEventListener('click', async () => {{
+      if (!pdfFile) return;
+
+      const puedeCompartirArchivo = Boolean(
+        navigator.share &&
+        navigator.canShare &&
+        navigator.canShare({{ files: [pdfFile] }})
+      );
+
+      if (!puedeCompartirArchivo) {{
+        downloadBtn.click();
+        return;
+      }}
+
+      try {{
+        await navigator.share({{
+          files: [pdfFile],
+          title: 'RDI',
+          text: 'Requerimiento de Información'
+        }});
+      }} catch (error) {{
+        if (error && error.name === 'AbortError') return;
+        console.error(error);
+        estado.classList.remove('ok');
+        estado.classList.add('error');
+        estado.innerHTML = '<strong>No se pudo abrir el menú de compartir.</strong><br>Puedes descargar el PDF y adjuntarlo manualmente.';
+      }}
+    }});
+
+    window.addEventListener('beforeunload', () => {{
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }});
+
+    prepararPdf();
+  </script>
+</body>
+</html>"""
+
+    return Response(pagina, mimetype="text/html")
 
 
 @app.route("/generar")
