@@ -594,7 +594,7 @@ def agregar_encabezado_rdi(
 
     titulo = Paragraph(
         f"<font size='8' color='#7A655B'><b>REQUERIMIENTO DE INFORMACIÓN</b></font><br/>"
-        f"<br/><font size='1.5'> </font><br/>"
+        f"<br/><font size='0.5'> </font><br/>"
         f"<font size='20' color='#8E3209'><b>RDI N° {texto_seguro(numero)}</b></font><br/>"
         f"<font size='8.5' color='#CB4D12'><b>{etapa}</b></font>",
         styles["normal"],
