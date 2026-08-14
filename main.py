@@ -13,7 +13,7 @@ import requests
 from flask import Flask, jsonify, request, send_file
 from PIL import Image as PILImage, ImageOps
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
@@ -38,6 +38,22 @@ LOCAL_LOGO = BASE_DIR / "logo.jpg"
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "Mozilla/5.0"})
+
+
+# -----------------------------------------------------------------------------
+# Identidad visual del PDF
+# -----------------------------------------------------------------------------
+# Paleta derivada del logo ENFOKE (naranja corporativo aproximado #CB4D12)
+COLOR_PRIMARIO = colors.HexColor("#CB4D12")
+COLOR_PRIMARIO_OSCURO = colors.HexColor("#8E3209")
+COLOR_SECUNDARIO = colors.HexColor("#E5783A")
+COLOR_ACENTO = colors.HexColor("#A63C0B")
+COLOR_FONDO = colors.HexColor("#FFF8F4")
+COLOR_FONDO_SUAVE = colors.HexColor("#FCEADF")
+COLOR_BORDE = colors.HexColor("#E9C6B2")
+COLOR_TEXTO = colors.HexColor("#332A26")
+COLOR_MUTED = colors.HexColor("#7A655B")
+COLOR_BLANCO = colors.white
 
 
 @app.route("/")
@@ -225,12 +241,75 @@ def nombre_archivo_seguro(valor: str) -> str:
     return valor or "RDI"
 
 
+def _p(valor: Any, estilo: ParagraphStyle) -> Paragraph:
+    return Paragraph(texto_seguro(valor), estilo)
+
+
 def agregar_logo(story: list[Any]) -> None:
+    """Mantiene compatibilidad con la función histórica."""
     if LOCAL_LOGO.exists():
-        logo = Image(str(LOCAL_LOGO), width=5.2 * cm, height=1.45 * cm)
-        logo.hAlign = "CENTER"
+        logo = Image(str(LOCAL_LOGO), width=5.2 * cm, height=1.42 * cm)
+        logo.hAlign = "LEFT"
         story.append(logo)
-        story.append(Spacer(1, 0.55 * cm))
+
+
+def obtener_logo_para_tabla() -> Any:
+    if LOCAL_LOGO.exists():
+        return Image(str(LOCAL_LOGO), width=5.2 * cm, height=1.42 * cm)
+    return ""
+
+
+def agregar_titulo_seccion(
+    story: list[Any],
+    titulo: str,
+    styles: dict[str, ParagraphStyle],
+    color: colors.Color = COLOR_PRIMARIO,
+) -> None:
+    barra = Table(
+        [[Paragraph(texto_seguro(titulo).upper(), styles["section_bar"]) ]],
+        colWidths=[17.6 * cm],
+    )
+    barra.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), color),
+                ("BOX", (0, 0), (-1, -1), 0.5, color),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.append(Spacer(1, 0.24 * cm))
+    story.append(barra)
+    story.append(Spacer(1, 0.22 * cm))
+
+
+def agregar_bloque_texto(
+    story: list[Any],
+    contenido: Any,
+    styles: dict[str, ParagraphStyle],
+) -> None:
+    texto = texto_seguro(contenido) or "Sin información registrada."
+    caja = Table(
+        [[Paragraph(texto, styles["normal"]) ]],
+        colWidths=[17.6 * cm],
+    )
+    caja.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), COLOR_FONDO),
+                ("BOX", (0, 0), (-1, -1), 0.7, COLOR_BORDE),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(caja)
 
 
 def agregar_imagenes(
@@ -247,21 +326,32 @@ def agregar_imagenes(
         if not file_path:
             continue
 
-        imagen = descargar_imagen(file_path)
+        imagen = descargar_imagen(
+            file_path,
+            max_width=8.1 * cm,
+            max_height=6.4 * cm,
+        )
         if imagen:
             imagenes.append(imagen)
 
-    story.append(Spacer(1, 0.35 * cm))
-    story.append(Paragraph(titulo, styles["section_center"]))
-    story.append(Spacer(1, 0.25 * cm))
+    agregar_titulo_seccion(story, titulo, styles, COLOR_SECUNDARIO)
 
     if not imagenes:
-        story.append(
-            Paragraph(
-                "No se adjuntaron imágenes.",
-                styles["small_center"],
+        caja = Table(
+            [[Paragraph("No se adjuntaron imágenes.", styles["small_center"]) ]],
+            colWidths=[17.6 * cm],
+        )
+        caja.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), COLOR_FONDO),
+                    ("BOX", (0, 0), (-1, -1), 0.6, COLOR_BORDE),
+                    ("TOPPADDING", (0, 0), (-1, -1), 9),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+                ]
             )
         )
+        story.append(caja)
         return
 
     filas = []
@@ -270,16 +360,23 @@ def agregar_imagenes(
         derecha = imagenes[indice + 1] if indice + 1 < len(imagenes) else ""
         filas.append([izquierda, derecha])
 
-    tabla = Table(filas, colWidths=[8.7 * cm, 8.7 * cm])
+    tabla = Table(
+        filas,
+        colWidths=[8.65 * cm, 8.65 * cm],
+        hAlign="CENTER",
+    )
     tabla.setStyle(
         TableStyle(
             [
+                ("BACKGROUND", (0, 0), (-1, -1), COLOR_BLANCO),
+                ("BOX", (0, 0), (-1, -1), 0.6, COLOR_BORDE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, COLOR_BORDE),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
             ]
         )
     )
@@ -292,18 +389,7 @@ def agregar_archivos_adjuntos(
     columnas: list[str],
     styles: dict[str, ParagraphStyle],
 ) -> None:
-    """
-    Agrega al PDF enlaces clicables hacia los archivos almacenados en AppSheet.
-
-    Columnas de la pregunta:
-    - ARCHIVO 1 P
-    - ARCHIVO 2 P
-
-    Columnas de la respuesta:
-    - ARCHIVO 1 R
-    - ARCHIVO 2 R
-    - Video R.
-    """
+    """Agrega una sección visual de archivos con enlaces clicables."""
     archivos: list[tuple[str, str, str]] = []
 
     for columna in columnas:
@@ -321,90 +407,170 @@ def agregar_archivos_adjuntos(
     if not archivos:
         return
 
-    story.append(Spacer(1, 0.3 * cm))
-    story.append(Paragraph("Archivos adjuntos", styles["section_center"]))
-    story.append(Spacer(1, 0.1 * cm))
+    agregar_titulo_seccion(story, "Archivos adjuntos", styles, COLOR_SECUNDARIO)
 
+    filas = []
     for etiqueta, nombre, url in archivos:
-        # ReportLab interpreta "&" como parte de su marcado XML.
-        # Por eso la URL debe pasar por texto_seguro().
         url_pdf = texto_seguro(url)
-
-        story.append(
-            Paragraph(
-                (
-                    f"<b>{texto_seguro(etiqueta)}:</b> "
-                    f'<link href="{url_pdf}" color="#1155CC">'
-                    f'<u>Abrir {texto_seguro(nombre)}</u>'
-                    f"</link>"
+        etiqueta_pdf = texto_seguro(etiqueta)
+        nombre_pdf = texto_seguro(nombre)
+        filas.append(
+            [
+                Paragraph(f"<b>{etiqueta_pdf}</b>", styles["attachment_label"]),
+                Paragraph(
+                    f'<link href="{url_pdf}" color="#CB4D12">'
+                    f'<b><u>Abrir {nombre_pdf}</u></b></link>',
+                    styles["attachment_link"],
                 ),
-                styles["normal"],
-            )
+            ]
         )
-        story.append(Spacer(1, 0.12 * cm))
+
+    tabla = Table(filas, colWidths=[4.1 * cm, 13.5 * cm])
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), COLOR_FONDO),
+                ("BOX", (0, 0), (-1, -1), 0.6, COLOR_BORDE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, COLOR_BORDE),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.append(tabla)
 
 
 def construir_estilos() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
 
     return {
+        "eyebrow": ParagraphStyle(
+            "Eyebrow",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.2,
+            leading=10,
+            textColor=COLOR_MUTED,
+            spaceAfter=2,
+        ),
         "title": ParagraphStyle(
             "RDITitle",
             parent=base["Title"],
             fontName="Helvetica-Bold",
-            fontSize=17,
-            leading=20,
-            alignment=TA_CENTER,
-            spaceAfter=12,
+            fontSize=20,
+            leading=23,
+            textColor=COLOR_PRIMARIO,
+            alignment=TA_LEFT,
+            spaceAfter=2,
+        ),
+        "subtitle": ParagraphStyle(
+            "RDISubtitle",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=11,
+            textColor=COLOR_ACENTO,
+            alignment=TA_LEFT,
         ),
         "project_label": ParagraphStyle(
             "ProjectLabel",
-            parent=base["Heading2"],
+            parent=base["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=14,
-            alignment=TA_CENTER,
-            spaceAfter=8,
+            fontSize=8.2,
+            leading=10,
+            textColor=COLOR_MUTED,
+            spaceAfter=2,
         ),
         "project": ParagraphStyle(
             "Project",
             parent=base["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=18,
-            leading=22,
-            alignment=TA_CENTER,
-            spaceAfter=18,
+            fontSize=14,
+            leading=17,
+            textColor=COLOR_TEXTO,
+            spaceAfter=0,
+        ),
+        "meta_label": ParagraphStyle(
+            "MetaLabel",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=7.6,
+            leading=9,
+            textColor=COLOR_MUTED,
+            alignment=TA_LEFT,
+        ),
+        "meta_value": ParagraphStyle(
+            "MetaValue",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=9.3,
+            leading=11,
+            textColor=COLOR_TEXTO,
+            alignment=TA_LEFT,
         ),
         "normal": ParagraphStyle(
             "RDINormal",
             parent=base["Normal"],
             fontName="Helvetica",
-            fontSize=10.5,
-            leading=14,
-            spaceAfter=6,
+            fontSize=10,
+            leading=14.3,
+            textColor=COLOR_TEXTO,
+            spaceAfter=0,
         ),
-        "section_center": ParagraphStyle(
-            "SectionCenter",
+        "section_bar": ParagraphStyle(
+            "SectionBar",
             parent=base["Heading2"],
             fontName="Helvetica-Bold",
-            fontSize=12.5,
-            leading=15,
-            alignment=TA_CENTER,
-            spaceBefore=6,
-            spaceAfter=8,
+            fontSize=9.3,
+            leading=11,
+            textColor=COLOR_BLANCO,
+            alignment=TA_LEFT,
+            spaceBefore=0,
+            spaceAfter=0,
         ),
         "small": ParagraphStyle(
             "Small",
             parent=base["Normal"],
-            fontSize=8.5,
-            leading=11,
+            fontName="Helvetica",
+            fontSize=8.4,
+            leading=10.5,
+            textColor=COLOR_MUTED,
         ),
         "small_center": ParagraphStyle(
             "SmallCenter",
             parent=base["Normal"],
-            fontSize=8.5,
-            leading=11,
+            fontName="Helvetica",
+            fontSize=8.4,
+            leading=10.5,
             alignment=TA_CENTER,
-            textColor=colors.grey,
+            textColor=COLOR_MUTED,
+        ),
+        "author": ParagraphStyle(
+            "Author",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.8,
+            leading=11,
+            textColor=COLOR_PRIMARIO,
+        ),
+        "attachment_label": ParagraphStyle(
+            "AttachmentLabel",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.4,
+            leading=10,
+            textColor=COLOR_MUTED,
+        ),
+        "attachment_link": ParagraphStyle(
+            "AttachmentLink",
+            parent=base["Normal"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=11,
+            textColor=COLOR_SECUNDARIO,
         ),
     }
 
@@ -421,48 +587,134 @@ def agregar_encabezado_rdi(
     proyecto = registro.get("PROYECTO", "")
     especialidad = registro.get("ESPECIALIDAD", "")
     sector = registro.get("SECTOR", "")
-    fecha = formatear_fecha(registro.get(fecha_columna, ""))
+    fecha = formatear_fecha(registro.get(fecha_columna, "")) or "No registrada"
 
-    agregar_logo(story)
+    logo = obtener_logo_para_tabla()
+    etapa = "RESPUESTA" if subtitulo else "EMISIÓN"
 
-    if subtitulo:
-        story.append(
-            Paragraph(subtitulo, styles["project_label"])
-        )
-        story.append(Spacer(1, 0.25 * cm))
-    
-    story.append(
-        Paragraph(
-            f"Requerimiento de Información N°{texto_seguro(numero)}",
-            styles["title"],
-        )
+    titulo = Paragraph(
+        f"<font size='8' color='#7A655B'><b>REQUERIMIENTO DE INFORMACIÓN</b></font><br/>"
+        f"<font size='20' color='#8E3209'><b>RDI N° {texto_seguro(numero)}</b></font><br/>"
+        f"<font size='8.5' color='#CB4D12'><b>{etapa}</b></font>",
+        styles["normal"],
     )
-    story.append(Paragraph("Proyecto", styles["project_label"]))
-    story.append(Paragraph(texto_seguro(proyecto), styles["project"]))
 
-    datos = [
-        [f"{fecha_etiqueta}:", fecha],
-        ["Especialidad:", str(especialidad or "")],
-        ["Sector:", str(sector or "")],
-    ]
-
-    tabla = Table(datos, colWidths=[4.3 * cm, 12.5 * cm])
-    tabla.setStyle(
+    cabecera = Table(
+        [[logo, titulo]],
+        colWidths=[5.7 * cm, 11.9 * cm],
+        rowHeights=[1.58 * cm],
+    )
+    cabecera.setStyle(
         TableStyle(
             [
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica"),
-                ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 10.5),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (0, 0), "LEFT"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.2, COLOR_PRIMARIO_OSCURO),
             ]
         )
     )
-    story.append(tabla)
-    story.append(Spacer(1, 0.25 * cm))
+    story.append(cabecera)
+    story.append(Spacer(1, 0.32 * cm))
+
+    proyecto_label_style = ParagraphStyle(
+        "ProjectLabelWhite",
+        parent=styles["project_label"],
+        textColor=COLOR_BLANCO,
+        alignment=TA_CENTER,
+    )
+    proyecto_caja = Table(
+        [[
+            Paragraph("PROYECTO", proyecto_label_style),
+            Paragraph(texto_seguro(proyecto) or "Sin proyecto", styles["project"]),
+        ]],
+        colWidths=[3.0 * cm, 14.6 * cm],
+    )
+    proyecto_caja.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 0), COLOR_PRIMARIO),
+                ("BACKGROUND", (1, 0), (1, 0), COLOR_FONDO_SUAVE),
+                ("BOX", (0, 0), (-1, -1), 0.7, COLOR_BORDE),
+                ("LINEAFTER", (0, 0), (0, 0), 0.7, COLOR_BORDE),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    story.append(proyecto_caja)
+    story.append(Spacer(1, 0.22 * cm))
+
+    meta = [
+        [
+            Paragraph(fecha_etiqueta.upper(), styles["meta_label"]),
+            Paragraph("ESPECIALIDAD", styles["meta_label"]),
+            Paragraph("SECTOR", styles["meta_label"]),
+        ],
+        [
+            Paragraph(texto_seguro(fecha), styles["meta_value"]),
+            Paragraph(texto_seguro(especialidad) or "-", styles["meta_value"]),
+            Paragraph(texto_seguro(sector) or "-", styles["meta_value"]),
+        ],
+    ]
+    tabla_meta = Table(meta, colWidths=[5.15 * cm, 5.6 * cm, 6.85 * cm])
+    tabla_meta.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), COLOR_FONDO),
+                ("BACKGROUND", (0, 1), (-1, 1), COLOR_BLANCO),
+                ("BOX", (0, 0), (-1, -1), 0.7, COLOR_BORDE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, COLOR_BORDE),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    story.append(tabla_meta)
+    story.append(Spacer(1, 0.18 * cm))
+
+
+def agregar_firma_informativa(
+    story: list[Any],
+    etiqueta: str,
+    nombre: Any,
+    styles: dict[str, ParagraphStyle],
+) -> None:
+    if not nombre:
+        return
+
+    story.append(Spacer(1, 0.35 * cm))
+    bloque = Table(
+        [[
+            Paragraph(texto_seguro(etiqueta).upper(), styles["meta_label"]),
+            Paragraph(texto_seguro(nombre), styles["author"]),
+        ]],
+        colWidths=[4.8 * cm, 12.8 * cm],
+    )
+    bloque.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), COLOR_FONDO_SUAVE),
+                ("BOX", (0, 0), (-1, -1), 0.6, COLOR_BORDE),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.append(bloque)
 
 
 def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
@@ -471,11 +723,13 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=1.5 * cm,
-        leftMargin=1.5 * cm,
-        topMargin=1.2 * cm,
-        bottomMargin=1.3 * cm,
+        rightMargin=1.35 * cm,
+        leftMargin=1.35 * cm,
+        topMargin=0.95 * cm,
+        bottomMargin=1.45 * cm,
         title=f"RDI {registro.get('N RDI', '')}",
+        author=str(registro.get("EMITIDO POR", "") or ""),
+        subject="Requerimiento de Información",
     )
 
     styles = construir_estilos()
@@ -490,19 +744,18 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
         "FECHA ENVIO",
     )
 
-    story.append(Paragraph("Explicación de la RDI", styles["section_center"]))
-    story.append(
-        Paragraph(
-            texto_seguro(registro.get("EXPLICACION DE LA RDI", "")),
-            styles["normal"],
-        )
+    agregar_titulo_seccion(story, "Explicación de la RDI", styles)
+    agregar_bloque_texto(
+        story,
+        registro.get("EXPLICACION DE LA RDI", ""),
+        styles,
     )
 
     agregar_imagenes(
         story,
         registro,
         ["IMAGEN 1 P", "IMAGEN 2 P"],
-        "Imágenes Explicativas",
+        "Imágenes explicativas",
         styles,
     )
 
@@ -513,15 +766,12 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
         styles,
     )
 
-    emitido_por = registro.get("EMITIDO POR", "")
-    if emitido_por:
-        story.append(Spacer(1, 0.4 * cm))
-        story.append(
-            Paragraph(
-                f"Emitido por: {texto_seguro(emitido_por)}",
-                styles["small"],
-            )
-        )
+    agregar_firma_informativa(
+        story,
+        "Emitido por",
+        registro.get("EMITIDO POR", ""),
+        styles,
+    )
 
     # Página 2: respuesta
     story.append(PageBreak())
@@ -535,19 +785,18 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
         "Respuesta",
     )
 
-    story.append(Paragraph("Respuesta de la RDI", styles["section_center"]))
-    story.append(
-        Paragraph(
-            texto_seguro(registro.get("RESPUESTA DE LA RDI", "")),
-            styles["normal"],
-        )
+    agregar_titulo_seccion(story, "Respuesta de la RDI", styles, COLOR_PRIMARIO_OSCURO)
+    agregar_bloque_texto(
+        story,
+        registro.get("RESPUESTA DE LA RDI", ""),
+        styles,
     )
 
     agregar_imagenes(
         story,
         registro,
         ["IMAGEN 1 R", "IMAGEN 2 R", "IMAGEN 3 R", "IMAGEN 4 R"],
-        "Imágenes Respuesta",
+        "Imágenes de la respuesta",
         styles,
     )
 
@@ -558,17 +807,54 @@ def crear_pdf_rdi(registro: dict[str, Any]) -> BytesIO:
         styles,
     )
 
-    respuesta_de = registro.get("RESPUESTA DE", "")
-    if respuesta_de:
-        story.append(Spacer(1, 0.45 * cm))
-        story.append(
-            Paragraph(
-                f"Respuesta entregada por {texto_seguro(respuesta_de)}",
-                styles["normal"],
-            )
-        )
+    agregar_firma_informativa(
+        story,
+        "Respuesta entregada por",
+        registro.get("RESPUESTA DE", ""),
+        styles,
+    )
 
-    doc.build(story)
+    numero = texto_seguro(registro.get("N RDI", ""))
+    proyecto = str(registro.get("PROYECTO", "") or "").strip()
+
+    def decorar_pagina(canvas, doc_obj) -> None:
+        canvas.saveState()
+        ancho, alto = letter
+
+        # Franja superior discreta de identidad.
+        canvas.setFillColor(COLOR_PRIMARIO)
+        canvas.rect(0, alto - 0.16 * cm, ancho, 0.16 * cm, fill=1, stroke=0)
+        canvas.setFillColor(COLOR_PRIMARIO_OSCURO)
+        canvas.rect(0, alto - 0.20 * cm, ancho, 0.04 * cm, fill=1, stroke=0)
+
+        # Pie de página.
+        y = 0.72 * cm
+        canvas.setStrokeColor(COLOR_BORDE)
+        canvas.setLineWidth(0.5)
+        canvas.line(1.35 * cm, y + 0.22 * cm, ancho - 1.35 * cm, y + 0.22 * cm)
+
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(COLOR_MUTED)
+        izquierda = proyecto[:55] if proyecto else "Requerimiento de Información"
+        canvas.drawString(1.35 * cm, y - 0.02 * cm, izquierda)
+
+        canvas.drawCentredString(
+            ancho / 2,
+            y - 0.02 * cm,
+            f"RDI N° {numero}",
+        )
+        canvas.drawRightString(
+            ancho - 1.35 * cm,
+            y - 0.02 * cm,
+            f"Página {doc_obj.page}",
+        )
+        canvas.restoreState()
+
+    doc.build(
+        story,
+        onFirstPage=decorar_pagina,
+        onLaterPages=decorar_pagina,
+    )
     buffer.seek(0)
     return buffer
 
